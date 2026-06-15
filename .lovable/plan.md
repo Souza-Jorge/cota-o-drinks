@@ -1,51 +1,39 @@
 ## Diagnóstico
 
-O projeto original "Cotação Bebidas" usa **dois backends Supabase** distintos — algo que foi perdido neste clone:
+O erro `Could not find the 'condicoes_pagamento' column of 'cotacoes' in the schema cache` confirma que o Supabase externo (`ztnyvrmiwmrqhquavfhl`) **tem** a tabela `cotacoes`, mas está com uma versão antiga do schema — faltam várias colunas, tabelas (`cotacao_fornecedores`, `purchase_history`) e ajustes que o app espera.
 
-| Backend | Usado para |
-|---|---|
-| **Supabase interno** (Lovable Cloud do projeto) | login/usuário, `cotacoes`, `cotacao_fornecedores`, `cotacao_itens`, `purchase_history`, `profiles` |
-| **Supabase externo** (`ztnyvrmiwmrqhquavfhl`) | leitura de `fornecedores` e `products` (catálogo) |
+Como esse Supabase não é o do projeto atual, não consigo rodar `migration` diretamente nele a partir daqui. A solução é eu gerar **um único SQL idempotente** com tudo que falta e você cola no **SQL Editor** do Supabase externo. Como tudo está com `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`, pode rodar com segurança mesmo se algo já existir.
 
-No clone atual, **tudo aponta para o Supabase externo**. Esse banco externo:
-- não tem as tabelas `cotacoes` / `cotacao_fornecedores` / `cotacao_itens` / `purchase_history` para o seu usuário, ou
-- mesmo se tiver, as policies de RLS escopadas em `auth.uid()` enxergam um usuário diferente do que está logado.
+## O que vou criar
 
-Resultado: `searchProductsClient` e `listSuppliersClient` funcionam (são leituras no externo), mas **Salvar rascunho** e **Fechar cotação** falham porque tentam gravar em tabelas que pertencem ao banco interno.
+Um arquivo `sql/upgrade.sql` no repositório (apenas como referência — não roda no projeto), contendo, em ordem:
 
-## O que vou fazer
+1. **Funções utilitárias** — `touch_updated_at`, `handle_new_user` (cria profile no signup).
+2. **profiles** — tabela + RLS própria + trigger `on_auth_user_created`.
+3. **cotacoes** — `ADD COLUMN IF NOT EXISTS` para `condicoes_pagamento`, `previsao_entrega`, `frete`, `updated_at`; expandir `status` para aceitar `'rascunho'`; tornar `fornecedor_codigo` opcional; trigger `updated_at`; RLS `auth.uid() = user_id`.
+4. **cotacao_fornecedores** (nova) — frete e desconto por fornecedor; RLS via `cotacoes`; unique `(cotacao_id, fornecedor_codigo)`.
+5. **cotacao_itens** — `ADD COLUMN IF NOT EXISTS` para `produto_nome`, `embalagem`, `pack`, `estoque_snapshot`, `total_bruto`, `total_liquido`, `fornecedor_codigo`, `is_vencedor`; índices; unique `(cotacao_id, produto_codigo, fornecedor_codigo)`; RLS via `cotacoes`.
+6. **purchase_history** (nova) — histórico de compras consolidado ao fechar cotação; RLS por usuário.
+7. **products / fornecedores** — habilitar RLS de leitura para `authenticated` (caso ainda não esteja).
+8. **GRANTs** explícitos para `authenticated` e `service_role` em todas as tabelas `public.*` novas/alteradas (Supabase exige isso para o PostgREST enxergar as tabelas).
+9. **View** `vw_melhor_preco_atual` com `security_invoker = on`.
+10. **`NOTIFY pgrst, 'reload schema';`** no final para o PostgREST recarregar imediatamente e o erro de schema-cache desaparecer.
 
-1. **Ativar o Supabase interno do projeto** (Lovable Cloud) e portar a estrutura que existe no original:
-   - Tabelas: `profiles`, `cotacoes`, `cotacao_fornecedores`, `cotacao_itens`, `purchase_history`.
-   - Funções/trigger: `handle_new_user`, `touch_updated_at`, `on_auth_user_created`.
-   - RLS por `auth.uid()` + GRANTs para `authenticated` e `service_role` (sem `anon`).
-   - View `purchase_history_view` se necessária para o badge de histórico.
+## O que muda no código
 
-2. **Refatorar os clients** em `src/lib/`:
-   - Manter `src/lib/supabase.ts` como **client externo** (somente catálogo: `fornecedores`, `products`).
-   - Usar `@/integrations/supabase/client` (interno, gerado pelo Lovable Cloud) para **autenticação** e **cotações**.
+Nada substancial. Após o SQL rodar, `saveQuoteDraftClient` e `closeQuoteClient` em `src/lib/quotes.api.ts` já bate com o schema. Vou apenas:
 
-3. **Atualizar `src/lib/quotes.api.ts`** seguindo o padrão do original:
-   - `listSuppliersClient` e `searchProductsClient` → client externo.
-   - `getPriceComparisonClient`, `saveQuoteDraftClient`, `closeQuoteClient` → client interno.
+- Trocar o `.single()` por `.maybeSingle()` no insert de `cotacoes` para mensagens de erro melhores quando RLS bloqueia.
+- Adicionar tratamento amigável de erro no snackbar (exibe o texto do Postgres, não só "Erro ao salvar").
 
-4. **Atualizar `src/lib/auth.tsx`** para usar o client interno (login/logout/sessão no Lovable Cloud, não no externo).
+## Como você roda
 
-5. **Telas de Login/Signup**: continuar funcionando — apenas trocam o client por trás.
+1. Eu salvo o arquivo `sql/upgrade.sql` no projeto.
+2. Você abre o **Supabase Studio** do projeto `ztnyvrmiwmrqhquavfhl` → **SQL Editor** → **New query** → cola o conteúdo de `sql/upgrade.sql` → **Run**.
+3. Volta no app, recarrega a página, e tenta Salvar rascunho / Fechar cotação novamente.
 
-6. **Verificação**:
-   - Login com um novo usuário do Lovable Cloud.
-   - Fluxo completo: adicionar fornecedores → buscar produto no catálogo externo → preencher preços → Salvar rascunho (deve persistir em `cotacoes` no interno) → Fechar cotação (deve gravar `purchase_history`).
-   - Confirmar no painel do Cloud que as linhas aparecem.
+Se algum erro de coluna ainda aparecer, me envia o texto que eu ajusto o SQL.
 
-## Pré-requisito (ação sua)
+## Observação sobre dados existentes
 
-O Lovable Cloud está **desabilitado** para a sua conta neste projeto. Para eu seguir, você precisa habilitar:
-
-> **Connectors → Lovable Cloud → Tool Permissions** → marque "Enable Lovable Cloud" como **Always allow** ou **Ask each time**.
-
-Depois é só me responder "pode seguir" que eu executo todos os passos acima em um único build.
-
-### Alternativa (não recomendada)
-
-Criar as tabelas de cotação **dentro do Supabase externo compartilhado**. Evito propor isso porque aquele banco é a fonte de catálogo de outros projetos seus e misturar dados transacionais ali pode causar conflitos de schema e RLS no futuro.
+A migração nova torna `cotacoes.fornecedor_codigo` opcional (era NOT NULL). Linhas existentes ficam intactas. Não há `DROP` de coluna nem de tabela — nada é destrutivo.
