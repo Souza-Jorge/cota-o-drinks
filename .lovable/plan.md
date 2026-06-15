@@ -1,72 +1,51 @@
-## Objetivo
+## Diagnóstico
 
-Recriar fielmente o app **Cotação Bebidas** neste novo projeto, conectado ao **mesmo backend Supabase** já existente (URL/anon key reutilizadas — anon key é pública, segura no código). Aplicar uma **nova identidade visual** ao invés de copiar o tema atual.
+O projeto original "Cotação Bebidas" usa **dois backends Supabase** distintos — algo que foi perdido neste clone:
 
-Como o Lovable Cloud está desativado neste projeto, vamos seguir exatamente a estratégia do original: cliente Supabase próprio em `src/lib/supabase.ts` (não usa `@/integrations/supabase/client`).
+| Backend | Usado para |
+|---|---|
+| **Supabase interno** (Lovable Cloud do projeto) | login/usuário, `cotacoes`, `cotacao_fornecedores`, `cotacao_itens`, `purchase_history`, `profiles` |
+| **Supabase externo** (`ztnyvrmiwmrqhquavfhl`) | leitura de `fornecedores` e `products` (catálogo) |
 
-## Escopo (cópia fiel)
+No clone atual, **tudo aponta para o Supabase externo**. Esse banco externo:
+- não tem as tabelas `cotacoes` / `cotacao_fornecedores` / `cotacao_itens` / `purchase_history` para o seu usuário, ou
+- mesmo se tiver, as policies de RLS escopadas em `auth.uid()` enxergam um usuário diferente do que está logado.
 
-Rotas:
-- `/` (landing/redirect para login ou dashboard)
-- `/login`, `/signup`
-- `/_authenticated/dashboard`
-- `/_authenticated/fornecedores`
-- `/_authenticated/produtos`
-- `/_authenticated/cotacoes/nova`
+Resultado: `searchProductsClient` e `listSuppliersClient` funcionam (são leituras no externo), mas **Salvar rascunho** e **Fechar cotação** falham porque tentam gravar em tabelas que pertencem ao banco interno.
 
-Domínio:
-- Tipos de cotação (`QuoteItem`, `SupplierLine`, `QuoteHeaderState`, `SupplierTerms`, `PriceComparison`, etc.)
-- Store da cotação (`useQuoteStore`)
-- Cálculos de preço líquido, vencedor automático e resumo financeiro (`calc.ts`)
-- API de cotações contra Supabase (`quotes.api.ts`)
-- Busca de produtos (`produto-search.ts`)
-- Auth com Supabase (`auth.tsx`)
+## O que vou fazer
 
-Componentes da cotação portados 1:1:
-`DecimalField`, `DiscountInput`, `PriceComparisonBadge`, `PriceHistoryBadge`, `QuoteFinancialSummary`, `QuoteHeader`, `QuoteItemCard`, `QuoteProductSearch`, `QuoteSuppliersBar`.
+1. **Ativar o Supabase interno do projeto** (Lovable Cloud) e portar a estrutura que existe no original:
+   - Tabelas: `profiles`, `cotacoes`, `cotacao_fornecedores`, `cotacao_itens`, `purchase_history`.
+   - Funções/trigger: `handle_new_user`, `touch_updated_at`, `on_auth_user_created`.
+   - RLS por `auth.uid()` + GRANTs para `authenticated` e `service_role` (sem `anon`).
+   - View `purchase_history_view` se necessária para o badge de histórico.
 
-## Identidade visual (nova)
+2. **Refatorar os clients** em `src/lib/`:
+   - Manter `src/lib/supabase.ts` como **client externo** (somente catálogo: `fornecedores`, `products`).
+   - Usar `@/integrations/supabase/client` (interno, gerado pelo Lovable Cloud) para **autenticação** e **cotações**.
 
-Antes de portar as telas, gero **3 direções de design** (HTML+Tailwind) com foco em app de cotação B2B de bebidas — densidade de dados, tabelas/cards, badges de preço, formulários numéricos rápidos. Você escolhe uma e eu aplico via tokens em `src/styles.css` (cores em `oklch`, tipografia carregada por `<link>` no `__root.tsx`, sem hardcode de cor nos componentes).
+3. **Atualizar `src/lib/quotes.api.ts`** seguindo o padrão do original:
+   - `listSuppliersClient` e `searchProductsClient` → client externo.
+   - `getPriceComparisonClient`, `saveQuoteDraftClient`, `closeQuoteClient` → client interno.
 
-## Passos de implementação
+4. **Atualizar `src/lib/auth.tsx`** para usar o client interno (login/logout/sessão no Lovable Cloud, não no externo).
 
-1. **Backend Supabase**
-   - Criar `src/lib/supabase.ts` com a mesma URL e anon key do projeto original.
-   - Não tocar em `src/integrations/` (Cloud desativado).
+5. **Telas de Login/Signup**: continuar funcionando — apenas trocam o client por trás.
 
-2. **Estrutura de rotas TanStack Start**
-   - Layout raiz mantém `__root.tsx` atual; adiciono header + `onAuthStateChange` para invalidar router.
-   - Criar `src/routes/_authenticated.tsx` (gate via `supabase.auth.getUser()` com `ssr: false`).
-   - Criar `login.tsx`, `signup.tsx`, `_authenticated/{dashboard,fornecedores,produtos,cotacoes.nova}.tsx`.
-   - Substituir o conteúdo de `index.tsx` (placeholder atual) por landing/redirect.
+6. **Verificação**:
+   - Login com um novo usuário do Lovable Cloud.
+   - Fluxo completo: adicionar fornecedores → buscar produto no catálogo externo → preencher preços → Salvar rascunho (deve persistir em `cotacoes` no interno) → Fechar cotação (deve gravar `purchase_history`).
+   - Confirmar no painel do Cloud que as linhas aparecem.
 
-3. **Portar domínio**
-   - Copiar `features/quotes/{types.ts,calc.ts,useQuoteStore.ts,components/*}`.
-   - Copiar `lib/{auth.tsx,format.ts,produto-search.ts,quotes.api.ts,utils.ts}` (utils já existe — só mesclar o que faltar).
+## Pré-requisito (ação sua)
 
-4. **Direções de design + tema**
-   - Gerar 3 direções com `design--create_directions`, você escolhe.
-   - Aplicar tokens em `src/styles.css` (substituir paleta padrão por uma autoral).
+O Lovable Cloud está **desabilitado** para a sua conta neste projeto. Para eu seguir, você precisa habilitar:
 
-5. **Telas**
-   - Implementar as 4 telas autenticadas chamando a API portada.
-   - Login/signup com formulário Supabase email+senha (mesmo método do original).
+> **Connectors → Lovable Cloud → Tool Permissions** → marque "Enable Lovable Cloud" como **Always allow** ou **Ask each time**.
 
-6. **Dependências**
-   - Adicionar (se faltar): `@supabase/supabase-js`, `zustand` (store), `date-fns`, `sonner` (toasts) — confirmar contra `package.json` do original.
+Depois é só me responder "pode seguir" que eu executo todos os passos acima em um único build.
 
-## Detalhes técnicos
+### Alternativa (não recomendada)
 
-- Anon key é **pública** — fica no código, sem secret.
-- Sem `createServerFn` para dados de cotação: como o original chama Supabase direto do cliente com RLS, mantenho a mesma arquitetura para preservar fidelidade.
-- Auth gate em `_authenticated/route.tsx` com `ssr: false` (padrão da doc TanStack + Supabase).
-- Sem `useEffect+fetch` para reads iniciais — uso TanStack Query (`ensureQueryData` + `useSuspenseQuery`) onde o original usar query.
-- Cada rota com `head()` próprio (título PT-BR).
-- Componentes shadcn já presentes neste template são suficientes; não precisa instalar pacotes novos de UI.
-
-## O que NÃO está incluído (confirmar se quiser)
-
-- Migrations: as tabelas já existem no Supabase original; não recrio nada de schema.
-- Edge functions: o original não usa.
-- Testes automatizados.
+Criar as tabelas de cotação **dentro do Supabase externo compartilhado**. Evito propor isso porque aquele banco é a fonte de catálogo de outros projetos seus e misturar dados transacionais ali pode causar conflitos de schema e RLS no futuro.
