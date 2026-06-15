@@ -12,4 +12,21 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    ssr: {
+      // Bundle MUI + react-transition-group through Vite so its ESM/CJS
+      // resolution issues don't blow up the Node SSR runtime.
+      noExternal: [
+        "@mui/material",
+        "@mui/system",
+        "@mui/base",
+        "@mui/utils",
+        "@mui/icons-material",
+        "@mui/x-date-pickers",
+        "@mui/private-theming",
+        "@mui/styled-engine",
+        "react-transition-group",
+      ],
+    },
+  },
 });
