@@ -13,6 +13,15 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    resolve: {
+      alias: {
+        // MUI v9 imports this package subpath without a file extension. Node's
+        // ESM SSR resolver treats it as a directory import, so point it at the
+        // concrete ESM file before SSR evaluates @mui/material/internal/Transition.
+        "react-transition-group/TransitionGroupContext":
+          "react-transition-group/esm/TransitionGroupContext.js",
+      },
+    },
     ssr: {
       // Bundle MUI + react-transition-group through Vite so its ESM/CJS
       // resolution issues don't blow up the Node SSR runtime.
