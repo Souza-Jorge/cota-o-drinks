@@ -144,8 +144,9 @@ export async function saveQuoteDraftClient(input: SaveDraftInput): Promise<{ quo
         frete: 0,
       } as any)
       .select("id")
-      .single();
+      .maybeSingle();
     if (error) throw new Error(error.message);
+    if (!ins) throw new Error("Não foi possível criar a cotação (RLS bloqueou ou usuário sem permissão).");
     quoteId = (ins as any).id;
   }
 
