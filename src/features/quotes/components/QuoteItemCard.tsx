@@ -33,56 +33,69 @@ export function QuoteItemCard({ item }: { item: QuoteItem }) {
   return (
     <Card variant="outlined">
       <CardContent sx={{ px: 1.5, py: 2, "&:last-child": { pb: 2 } }}>
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={2}
-          sx={{ alignItems: { md: "flex-start" }, justifyContent: "space-between" }}
-        >
-          <Stack sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 700 }}>{item.productName}</Typography>
-            <Typography variant="caption" color="text.secondary">
+        <Stack spacing={1.25}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontWeight: 700, fontSize: 14, lineHeight: 1.3 }}>
+              {item.productName}
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", fontSize: 11 }}
+            >
               Cód {item.produtoCodigo} • {item.packageLabel || "—"} • Pack {item.pack} • Estoque {item.stock}
             </Typography>
-          </Stack>
+          </Box>
 
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: "flex-end" }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: "flex-end", flexWrap: "wrap", rowGap: 1 }}
+          >
             <Box>
               <Stack direction="row" spacing={1}>
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Cx</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>Cx</Typography>
                   <DecimalField
                     value={item.quantityBoxes}
                     onChange={(n) => updateItemQuantityBoxes(item.id, n)}
-                    width={70}
+                    width={56}
                     decimals={0}
                   />
                 </Box>
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Un</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>Un</Typography>
                   <DecimalField
                     value={item.quantityUnits}
                     onChange={(n) => updateItemQuantityUnits(item.id, n)}
-                    width={70}
+                    width={56}
                     decimals={0}
                   />
                 </Box>
               </Stack>
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", mt: 0.25, fontSize: 11 }}
+              >
                 = {effectiveUnits(item)} un
               </Typography>
             </Box>
-            <Box sx={{ minWidth: 200 }}>
-              <Typography variant="caption" color="text.secondary">Vencedor</Typography>
+            <Box sx={{ minWidth: 160, flex: "1 1 160px" }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>Vencedor</Typography>
               <FormControl fullWidth size="small">
                 <Select
                   value={item.winnerSupplierCodigo == null ? "__auto__" : String(item.winnerSupplierCodigo)}
                   onChange={(e) =>
                     setItemWinner(item.id, e.target.value === "__auto__" ? null : Number(e.target.value))
                   }
+                  sx={{ fontSize: 13 }}
                 >
-                  <MenuItem value="__auto__"><em>Automático (menor preço)</em></MenuItem>
+                  <MenuItem value="__auto__" sx={{ fontSize: 13 }}>
+                    <em>Automático (menor preço)</em>
+                  </MenuItem>
                   {supplierCodigos.map((sid) => (
-                    <MenuItem key={sid} value={String(sid)}>
+                    <MenuItem key={sid} value={String(sid)} sx={{ fontSize: 13 }}>
                       {supplierNames[sid] ?? `Cód ${sid}`}
                     </MenuItem>
                   ))}
@@ -90,8 +103,8 @@ export function QuoteItemCard({ item }: { item: QuoteItem }) {
               </FormControl>
             </Box>
             <Tooltip title="Remover item">
-              <IconButton color="error" onClick={() => removeItem(item.id)}>
-                <DeleteIcon />
+              <IconButton color="error" size="small" onClick={() => removeItem(item.id)} sx={{ ml: "auto" }}>
+                <DeleteIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           </Stack>
